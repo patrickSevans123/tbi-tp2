@@ -381,6 +381,34 @@ def eval(qrels, query_file = "queries.txt", k = 1000):
   except Exception as e:
     print(f"\n--- GAR + LSI --- (skipped: {e})")
 
+  # ========== BONUS: LSI + IVF Vector Index ==========
+  try:
+    from vector_index import IVFIndex, retrieve_lsi_with_vector_index
+    from lsi import LSIRetriever
+    BSBI_instance.load()
+
+    lsi_model_path = os.path.join('index', 'lsi_model.pkl')
+    if 'lsi' not in dir():
+      lsi = LSIRetriever(k=150)
+      if os.path.exists(lsi_model_path):
+        lsi.load(lsi_model_path)
+      else:
+        lsi.build('main_index', VBEPostings, 'index')
+        lsi.save(lsi_model_path)
+
+    ivf = IVFIndex(n_clusters=16, nprobe=6, n_iter=20)
+    ivf.build(lsi.doc_vectors)
+
+    def ivf_retrieve(query, k=10):
+      return retrieve_lsi_with_vector_index(
+        query, lsi, BSBI_instance.term_id_map,
+        BSBI_instance.doc_id_map, ivf, k=k)
+
+    ivf_scores = _evaluate_method(ivf_retrieve, queries_data, qrels, k)
+    _print_method_scores("LSI + IVF Vector Index", ivf_scores)
+  except Exception as e:
+    print(f"\n--- LSI + IVF --- (skipped: {e})")
+
   print("\n" + "=" * 70)
 
 

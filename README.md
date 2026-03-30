@@ -153,7 +153,20 @@ Two scorer configurations are supported:
 
 - File: `adaptive_retrieval.py` -- `CorpusGraph`, `GAR`, `retrieve_gar()`, `retrieve_gar_lsi()`
 
-**10. Pseudo-Relevance Feedback (Rocchio Algorithm)**
+**10. Vector Indexing (FAISS-like)**
+
+Implements FAISS-style vector indexing structures from scratch for accelerating nearest-neighbor search over LSI document vectors. Three index types are provided:
+
+- **FlatIndex** (brute-force baseline): Computes cosine similarity against all vectors. Exact results, O(N*d) per query. Equivalent to FAISS `IndexFlatIP`.
+- **IVFIndex** (Inverted File Index): Partitions vectors into clusters using K-means. At query time, only searches the `nprobe` nearest clusters. Approximate results, significantly faster. Equivalent to FAISS `IndexIVFFlat`.
+- **LSHIndex** (Locality-Sensitive Hashing): Projects vectors into binary hash codes using random hyperplanes. Groups similar vectors into the same bucket. Sub-linear query time. Equivalent to FAISS `IndexLSH`.
+
+The IVF index with 16 clusters and nprobe=6 achieves the best overall evaluation scores (NDCG 0.873, AP 0.665) while reducing the search space compared to brute-force.
+
+- File: `vector_index.py` -- `FlatIndex`, `IVFIndex`, `LSHIndex`, `retrieve_lsi_with_vector_index()`
+
+**11. Pseudo-Relevance Feedback (Rocchio Algorithm)**
+
 
 Expands the query using terms from top-k initially retrieved documents (assumed relevant):
 
@@ -165,7 +178,7 @@ Expansion terms are selected by TF-IDF weight in feedback documents, then the ex
 
 - File: `adaptive_retrieval.py` -- `RocchioExpander`
 
-**11. Query Spell Correction**
+**12. Query Spell Correction**
 
 Corrects misspelled query terms using three complementary techniques:
 - **Levenshtein edit distance** -- dynamic programming O(m*n) algorithm
@@ -176,7 +189,7 @@ Example: "radioactiv iodoacetae" is corrected to "radioactive iodoacetate".
 
 - File: `spell_correction.py` -- `SpellCorrector`, `BKTree`, `CharNgramIndex`
 
-**12. Boolean Query Processing**
+**13. Boolean Query Processing**
 
 Supports AND, OR, NOT operators with parenthetical grouping. Uses a recursive descent parser to build an abstract syntax tree (AST), then evaluates using set operations on posting lists.
 
@@ -188,7 +201,7 @@ Grammar: OR < AND < NOT (precedence), with parentheses for override.
 
 - File: `boolean_query.py` -- `BooleanQueryParser`, `BooleanQueryEvaluator`
 
-**13. Result Snippets with Highlighting**
+**14. Result Snippets with Highlighting**
 
 Generates contextual snippets from retrieved documents. Uses a sliding window to find the passage with the highest density of query terms, then highlights matching terms.
 
@@ -294,6 +307,7 @@ Mean scores across 30 queries (top-1000 retrieval):
 | Rocchio PRF               | 0.659 | 5.935 | 0.803 | 0.536 |
 | GAR + BM25 scorer         | 0.637 | 5.902 | 0.787 | 0.498 |
 | GAR + LSI scorer          | 0.746 | 6.609 | 0.858 | 0.628 |
+| LSI + IVF Vector Index    | 0.747 | 6.368 | 0.873 | 0.665 |
 
 Key observations:
 - **BM25 outperforms TF-IDF** across all metrics, confirming the effectiveness of term frequency saturation and document length normalization.
@@ -302,12 +316,14 @@ Key observations:
 - **Rocchio PRF improves over BM25** on all metrics, showing that pseudo-relevance feedback successfully identifies useful expansion terms.
 - **GAR + BM25 scorer** shows marginal improvement over BM25 -- this is expected because GAR is designed to reduce the number of calls to an expensive scorer, not to improve a cheap scorer like BM25.
 - **GAR + LSI scorer** matches full LSI quality (DCG 6.609 vs 6.569) while only LSI-scoring a subset of documents selected through the corpus graph. This is the intended usage pattern of GAR: cheap initial retrieval (BM25) to get candidates, then GAR selects which candidates to score with the expensive scorer (LSI), mirroring the original paper's BM25 --> GAR --> MonoT5 pipeline.
+- **LSI + IVF Vector Index** achieves the highest NDCG (0.873) and AP (0.665) among all methods. The IVF index partitions LSI document vectors into K-means clusters and searches only the nearest clusters at query time, providing a FAISS-like approximate nearest-neighbor search capability implemented entirely from scratch.
 
 ## File Reference
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `adaptive_retrieval.py` | 793 | GAR corpus graph adaptive re-ranking, Rocchio PRF, RSV query expansion, proximity re-ranking |
+| `adaptive_retrieval.py` | 860 | GAR corpus graph adaptive re-ranking, Rocchio PRF, RSV query expansion, proximity re-ranking |
+| `vector_index.py` | 420 | FlatIndex, IVFIndex (K-means), LSHIndex (random hyperplanes), FAISS-like vector search |
 | `lsi.py` | 645 | Latent Semantic Indexing with randomized SVD, sparse matrix operations, Jacobi eigenvalue solver |
 | `spimi.py` | 548 | SPIMI indexing, Trie data structure, text preprocessing with stemming and stopwords |
 | `spell_correction.py` | 508 | Levenshtein distance, character n-gram index, BK-tree, query correction pipeline |
@@ -320,7 +336,7 @@ Key observations:
 | `index.py` | 256 | Inverted index reader/writer with metadata persistence |
 | `search.py` | 198 | End-to-end demo of all retrieval methods and bonus features |
 | `util.py` | 132 | IdMap bidirectional mapping, sorted merge for postings lists |
-| **Total** | **5,460** | |
+| **Total** | **5,947** | |
 
 ## References
 
@@ -328,4 +344,5 @@ Key observations:
 - Robertson, S.E. and Zaragoza, H. "The Probabilistic Relevance Framework: BM25 and Beyond." *Foundations and Trends in Information Retrieval*, 2009.
 - MacAvaney, S., Tonellotto, N., and Macdonald, C. "Adaptive Re-Ranking with a Corpus Graph." *CIKM*, 2022.
 - Halko, N., Martinsson, P.G., and Tropp, J.A. "Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions." *SIAM Review*, 2011.
+- Johnson, J., Douze, M., and Jegou, H. "Billion-scale similarity search with GPUs." *IEEE Transactions on Big Data*, 2019.
 - Porter, M.F. "An algorithm for suffix stripping." *Program*, 1980.
